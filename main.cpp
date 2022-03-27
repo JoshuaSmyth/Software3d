@@ -18,6 +18,7 @@ SDL_Surface *surface;
 
 #define M_PI           3.14159265358979323846 
 #define M_PI_2         1.57079632679489661923
+#define M_2PI          2*M_PI
 #define FPS_INTERVAL 1.0 //seconds.
 
 Uint32 fps_lasttime = SDL_GetTicks();
@@ -102,7 +103,7 @@ public:
 // Forward declares
 void draw_line(Uint32* pixels, int x0, int y0, int x1, int y1, int color);
 void draw_line(Uint32* pixels, line2_uint16& line, int color);
-void draw_quad(Uint32* pixels, quad2_uint16& quad, int color);
+void draw_quad_fill(Uint32* pixels, quad2_uint16& quad, int color);
 void draw_quad_wireframe(Uint32* pixels, quad2_uint16& quad, int color);
 
 void draw_quad_segment(Uint32* pixels, line2_uint16& left, line2_uint16& right);
@@ -139,7 +140,7 @@ public:
 
 void ndc_to_ScreenSpace(vertex2f_Projected& out)
 {
-    float x_proj_remap = (1 + out.X) / 2;
+    float x_proj_remap = (1 + out.X) / 2;       // Maps between 0-1
     float y_proj_remap = (1 + out.Y) / 2;
 
 
@@ -160,20 +161,28 @@ vertex2f_Projected viewspace_to_ndc(vertex3f& in)
 struct model_cube
 {
     // World space X,Y Z=height
-    vertex3f corners[8] = 
+    vertex3f corners[12] = 
     {
-        { -1, 3, 1},
-        { 1, 3, 1},
-        { -1, 3, -1},
-        { 1,  3, -1},
-        { 0, 0, 0},
-        { 0, 0, 0},
+        { 4, -1, 2},
+        { 4, 1, 2},
+        { 4, -1, -1},
+        { 4,  1, -1},
+
+        { 4, 1, 2},
+        { 4, 2, 1},
+        { 4, 1, -1},
+        { 4, 2, -1},
+
+        { 4, -2, 0.5},
+        { 4, -1, 1},
+        { 4, -2, -1},
+        { 4, -1, -1},
     };
 };
 
 model_cube model;
 
-vertex3f vertexbuffer[8] = { };
+vertex3f vertexbuffer[12] = { };
 
 void render() 
 {
@@ -193,15 +202,20 @@ void render()
     {
 
         // world space to camera(view) space.
-        for (int i = 0; i < 8; i++)
+        int len = sizeof(model.corners) / sizeof(model.corners[0]);
+        for (int i = 0; i < len; i++)
         {
             vertexbuffer[i] = model.corners[i];
-            float x = model.corners[i].X;
-            float y = model.corners[i].Y;
+            float x = -1 * model.corners[i].Y;
+            float y = model.corners[i].X;
             float z = model.corners[i].Z;
 
             if (true)
             {
+                // DO I need a proper matrix for this maybe it's not good enough...
+
+                // I think I need a proper worldToCamera tranformation matrix...
+
                 // WorldSpace:
                 //      Cartesion from top down with Z being the height
                 // Camera space:
@@ -210,43 +224,90 @@ void render()
                 float distance = sqrt(x * x + y * y);
                                 
                 // Translate wrt the camera position
-                y += cameraZoom;
-
+                y -= cameraZoom;
+                
                 // Rotate wrt the camera rotation
                 float rads = cameraRotationRadians;
-
-                float xprime = cos(rads) * x - sin(rads) * y;
-                float yprime = sin(rads) * x + cos(rads) * y;
+           
+                // Does X and Y always need to be rotated by 90 first?
+                float tx = cos(rads) * x + sin(rads) * y;
+                float ty = sin(rads) * x - cos(rads) * y;
 
                 // Now we are in camera(view) space
-                vertexbuffer[i].X = distance * xprime;
-                vertexbuffer[i].Y = distance * -z;
-                vertexbuffer[i].Z = distance * -yprime;
+                vertexbuffer[i].X = -1 * tx / distance;
+                vertexbuffer[i].Y = -1 * z / distance;               // Becomes the height
+                vertexbuffer[i].Z = ty / distance;
             }
         }
         
-        // Project the first 4 points
-        auto projectedA = viewspace_to_ndc(vertexbuffer[0]);
-        auto projectedB = viewspace_to_ndc(vertexbuffer[1]);
-        auto projectedC = viewspace_to_ndc(vertexbuffer[3]);
-        auto projectedD = viewspace_to_ndc(vertexbuffer[2]);
-
-        
-        // TODO Solve for Clipspace
 
 
+        // TODO Colate into quads for rendering...
 
-        // For pixel coords
-        ndc_to_ScreenSpace(projectedA);
-        ndc_to_ScreenSpace(projectedB);
-        ndc_to_ScreenSpace(projectedC);
-        ndc_to_ScreenSpace(projectedD);
+        // Quad A
+        {
+            // Project the first 4 points
+            auto projectedA = viewspace_to_ndc(vertexbuffer[0]);
+            auto projectedB = viewspace_to_ndc(vertexbuffer[1]);
+            auto projectedC = viewspace_to_ndc(vertexbuffer[3]);
+            auto projectedD = viewspace_to_ndc(vertexbuffer[2]);
 
-        quad2_uint16 quadA = quad2_uint16(vec2_uint16(projectedA.X, projectedA.Y), vec2_uint16(projectedB.X, projectedB.Y), vec2_uint16(projectedC.X, projectedC.Y), vec2_uint16(projectedD.X, projectedD.Y));
 
-        draw_quad(pixels, quadA, 255);
-        draw_quad_wireframe(pixels, quadA, 255);
+            // TODO Solve for Clipspace
 
+            // For pixel coords
+            ndc_to_ScreenSpace(projectedA);
+            ndc_to_ScreenSpace(projectedB);
+            ndc_to_ScreenSpace(projectedC);
+            ndc_to_ScreenSpace(projectedD);
+
+            quad2_uint16 quadA = quad2_uint16(vec2_uint16(projectedA.X, projectedA.Y), vec2_uint16(projectedB.X, projectedB.Y), vec2_uint16(projectedC.X, projectedC.Y), vec2_uint16(projectedD.X, projectedD.Y));
+
+            draw_quad_fill(pixels, quadA, 255);
+            draw_quad_wireframe(pixels, quadA, 255);
+        }
+
+        // Quad B
+        {
+            auto projectedA = viewspace_to_ndc(vertexbuffer[4]);
+            auto projectedB = viewspace_to_ndc(vertexbuffer[5]);
+            auto projectedC = viewspace_to_ndc(vertexbuffer[7]);
+            auto projectedD = viewspace_to_ndc(vertexbuffer[6]);
+
+            // TODO Solve for Clipspace
+            
+            // For pixel coords
+            ndc_to_ScreenSpace(projectedA);
+            ndc_to_ScreenSpace(projectedB);
+            ndc_to_ScreenSpace(projectedC);
+            ndc_to_ScreenSpace(projectedD);
+
+            quad2_uint16 quadA = quad2_uint16(vec2_uint16(projectedA.X, projectedA.Y), vec2_uint16(projectedB.X, projectedB.Y), vec2_uint16(projectedC.X, projectedC.Y), vec2_uint16(projectedD.X, projectedD.Y));
+
+            //draw_quad_fill(pixels, quadA, 255);
+            draw_quad_wireframe(pixels, quadA, 255);
+        }
+
+        // Quad C
+        {
+            auto projectedA = viewspace_to_ndc(vertexbuffer[8]);
+            auto projectedB = viewspace_to_ndc(vertexbuffer[9]);
+            auto projectedC = viewspace_to_ndc(vertexbuffer[11]);
+            auto projectedD = viewspace_to_ndc(vertexbuffer[10]);
+
+            // TODO Solve for Clipspace
+
+            // For pixel coords
+            ndc_to_ScreenSpace(projectedA);
+            ndc_to_ScreenSpace(projectedB);
+            ndc_to_ScreenSpace(projectedC);
+            ndc_to_ScreenSpace(projectedD);
+
+            quad2_uint16 quadA = quad2_uint16(vec2_uint16(projectedA.X, projectedA.Y), vec2_uint16(projectedB.X, projectedB.Y), vec2_uint16(projectedC.X, projectedC.Y), vec2_uint16(projectedD.X, projectedD.Y));
+
+            //draw_quad_fill//(pixels, quadA, 255);
+            draw_quad_wireframe(pixels, quadA, 255);
+        }
     }
 
     if (SDL_MUSTLOCK(surface))
@@ -321,7 +382,7 @@ void draw_quad_wireframe(Uint32* pixels, quad2_uint16& quad, int color)
     }
 }
 
-void draw_quad(Uint32* pixels, quad2_uint16& quad, int color)
+void draw_quad_fill(Uint32* pixels, quad2_uint16& quad, int color)
 {
     // Draw fill
 
@@ -561,9 +622,9 @@ void windows_main()
                 if (e.key.keysym.sym == SDLK_LEFT)
                 {
                     cameraRotationRadians += 0.01;
-                    if (cameraRotationRadians > M_PI)
+                    if (cameraRotationRadians > M_2PI)
                     {
-                        cameraRotationRadians -= M_PI;
+                        cameraRotationRadians -= M_2PI;
                     }
                 } 
                 else if (e.key.keysym.sym == SDLK_RIGHT)
@@ -571,7 +632,7 @@ void windows_main()
                     cameraRotationRadians -= 0.01;
                     if (cameraRotationRadians < 0)
                     {
-                        cameraRotationRadians += M_PI;
+                        cameraRotationRadians += M_2PI;
                     }
                 }
                 else if (e.key.keysym.sym == SDLK_a)
